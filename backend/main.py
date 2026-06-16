@@ -27,7 +27,6 @@ app.add_middleware(
 )
 
 DomainType = Literal["brandable", "meaningful", "both"]
-LengthBucket = Literal["3", "4", "5+"]
 
 
 class SearchRequest(BaseModel):
@@ -35,13 +34,11 @@ class SearchRequest(BaseModel):
     languages: Optional[list[str]] = None
     domain_type: DomainType = "both"
     trend_location: str = "auto"
-    lengths: Optional[list[LengthBucket]] = None
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
     cost_min: Optional[float] = None
     cost_max: Optional[float] = None
-    heat_index_min: Optional[int] = None
-    heat_index_max: Optional[int] = None
-    trend_score_min: Optional[int] = None
-    trend_score_max: Optional[int] = None
+    score_heat_min: Optional[int] = None
     extensions: Optional[list[str]] = None
 
     @field_validator("niche")
@@ -98,18 +95,13 @@ class SearchResponse(BaseModel):
     trend_source: str
 
 
-def _passes_length_filter(name: str, lengths: Optional[list[str]]) -> bool:
-    if not lengths:
-        return True
+def _passes_length_filter(name: str, min_length: Optional[int], max_length: Optional[int]) -> bool:
     n = len(name)
-    for bucket in lengths:
-        if bucket == "3" and n == 3:
-            return True
-        if bucket == "4" and n == 4:
-            return True
-        if bucket == "5+" and n >= 5:
-            return True
-    return False
+    if min_length is not None and n < min_length:
+        return False
+    if max_length is not None and n > max_length:
+        return False
+    return True
 
 
 def _passes_domain_type_filter(semantic_type: str, domain_type: DomainType) -> bool:
@@ -152,7 +144,7 @@ async def search_domains(req: SearchRequest):
     # Pre-filter by length and domain type before spending RDAP calls
     filtered_candidates: dict[str, dict] = {}
     for name, provenance in candidates.items():
-        if not _passes_length_filter(name, req.lengths):
+        if not _passes_length_filter(name, req.min_length, req.max_length):
             continue
         semantic = classify_and_explain(name, provenance)
         if not _passes_domain_type_filter(semantic["type"], req.domain_type):
@@ -190,13 +182,9 @@ async def search_domains(req: SearchRequest):
                 continue
             if req.cost_max is not None and enriched["registration_cost_usd"] > req.cost_max:
                 continue
-            if req.heat_index_min is not None and enriched["heat_index"] < req.heat_index_min:
+            if req.score_heat_min is not None and enriched["heat_index"] < req.score_heat_min:
                 continue
-            if req.heat_index_max is not None and enriched["heat_index"] > req.heat_index_max:
-                continue
-            if req.trend_score_min is not None and enriched["trend_score"] < req.trend_score_min:
-                continue
-            if req.trend_score_max is not None and enriched["trend_score"] > req.trend_score_max:
+            if req.score_heat_min is not None and enriched["trend_score"] < req.score_heat_min:
                 continue
 
             domains.append(DomainResult(**enriched))

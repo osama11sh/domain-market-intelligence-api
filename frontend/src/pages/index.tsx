@@ -26,7 +26,6 @@ type Meta = {
 };
 
 type DomainType = "brandable" | "meaningful" | "both";
-type LengthBucket = "3" | "4" | "5+";
 
 type SortKey =
   | "name"
@@ -40,7 +39,6 @@ type SortKey =
   | "expected_monthly_clicks";
 
 const ALL_EXTENSIONS = [".com", ".net", ".ai", ".org"];
-const ALL_LENGTHS: LengthBucket[] = ["3", "4", "5+"];
 
 function formatGeo(geo: Record<string, number>): string {
   return Object.entries(geo)
@@ -87,13 +85,11 @@ export default function Home() {
   const [languages, setLanguages] = useState<string[]>([]);
   const [domainType, setDomainType] = useState<DomainType>("both");
   const [trendLocation, setTrendLocation] = useState("auto");
-  const [lengths, setLengths] = useState<LengthBucket[]>([]);
+  const [lengthMin, setLengthMin] = useState(3);
+  const [lengthMax, setLengthMax] = useState(15);
   const [costMin, setCostMin] = useState("");
   const [costMax, setCostMax] = useState("");
-  const [heatMin, setHeatMin] = useState(1);
-  const [heatMax, setHeatMax] = useState(100);
-  const [trendMin, setTrendMin] = useState(1);
-  const [trendMax, setTrendMax] = useState(100);
+  const [scoreHeatMin, setScoreHeatMin] = useState(1);
   const [extensions, setExtensions] = useState<string[]>(ALL_EXTENSIONS);
 
   useEffect(() => {
@@ -122,14 +118,12 @@ export default function Home() {
         niche: niche.trim(),
         domain_type: domainType,
         trend_location: trendLocation,
-        heat_index_min: heatMin,
-        heat_index_max: heatMax,
-        trend_score_min: trendMin,
-        trend_score_max: trendMax,
+        score_heat_min: scoreHeatMin,
+        min_length: lengthMin,
+        max_length: lengthMax,
         extensions,
       };
       if (languages.length > 0) body.languages = languages;
-      if (lengths.length > 0) body.lengths = lengths;
       if (costMin !== "") body.cost_min = Number(costMin);
       if (costMax !== "") body.cost_max = Number(costMax);
 
@@ -285,24 +279,28 @@ export default function Home() {
             </div>
 
             <div>
-              <label className="block text-gray-400 mb-1">Character length</label>
-              <div className="flex gap-2">
-                {ALL_LENGTHS.map((l) => (
-                  <button
-                    type="button"
-                    key={l}
-                    onClick={() => toggleInArray(lengths, l, setLengths)}
-                    className={`px-3 py-1 rounded border text-xs ${
-                      lengths.includes(l)
-                        ? "bg-indigo-600 border-indigo-500"
-                        : "bg-gray-800 border-gray-600 text-gray-300"
-                    }`}
-                  >
-                    {l}
-                  </button>
-                ))}
+              <label className="block text-gray-400 mb-1">
+                Character length: {lengthMin}–{lengthMax}
+              </label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="range"
+                  min={3}
+                  max={15}
+                  value={lengthMin}
+                  onChange={(e) => setLengthMin(Math.min(Number(e.target.value), lengthMax - 1))}
+                  className="w-1/2 accent-indigo-500"
+                />
+                <input
+                  type="range"
+                  min={3}
+                  max={15}
+                  value={lengthMax}
+                  onChange={(e) => setLengthMax(Math.max(Number(e.target.value), lengthMin + 1))}
+                  className="w-1/2 accent-indigo-500"
+                />
               </div>
-              <p className="text-gray-500 text-xs mt-1">None selected = any length</p>
+              <p className="text-gray-500 text-xs mt-1">Left slider = min chars, right slider = max chars</p>
             </div>
 
             <div>
@@ -347,50 +345,17 @@ export default function Home() {
 
             <div>
               <label className="block text-gray-400 mb-1">
-                Heat Index: {heatMin}–{heatMax}
+                Score &amp; Heat min: {scoreHeatMin}
               </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={heatMin}
-                  onChange={(e) => setHeatMin(Math.min(Number(e.target.value), heatMax))}
-                  className="w-1/2 accent-indigo-500"
-                />
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={heatMax}
-                  onChange={(e) => setHeatMax(Math.max(Number(e.target.value), heatMin))}
-                  className="w-1/2 accent-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">
-                Trend score: {trendMin}–{trendMax}
-              </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={trendMin}
-                  onChange={(e) => setTrendMin(Math.min(Number(e.target.value), trendMax))}
-                  className="w-1/2 accent-indigo-500"
-                />
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={trendMax}
-                  onChange={(e) => setTrendMax(Math.max(Number(e.target.value), trendMin))}
-                  className="w-1/2 accent-indigo-500"
-                />
-              </div>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                value={scoreHeatMin}
+                onChange={(e) => setScoreHeatMin(Number(e.target.value))}
+                className="w-full accent-indigo-500"
+              />
+              <p className="text-gray-500 text-xs mt-1">Applies to both Trend Score and Heat Index</p>
             </div>
           </div>
         )}
