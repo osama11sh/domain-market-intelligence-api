@@ -82,14 +82,14 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
 
   // Filter state
-  const [languages, setLanguages] = useState<string[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const [domainType, setDomainType] = useState<DomainType>("both");
   const [trendLocation, setTrendLocation] = useState("auto");
   const [lengthMin, setLengthMin] = useState(3);
-  const [lengthMax, setLengthMax] = useState(15);
+  const [lengthMax, setLengthMax] = useState(20);
   const [costMin, setCostMin] = useState("");
   const [costMax, setCostMax] = useState("");
-  const [scoreHeatMin, setScoreHeatMin] = useState(1);
+  const [trendIndexMin, setTrendIndexMin] = useState(1);
   const [extensions, setExtensions] = useState<string[]>(ALL_EXTENSIONS);
 
   useEffect(() => {
@@ -118,12 +118,12 @@ export default function Home() {
         niche: niche.trim(),
         domain_type: domainType,
         trend_location: trendLocation,
-        score_heat_min: scoreHeatMin,
+        score_heat_min: trendIndexMin,
         min_length: lengthMin,
         max_length: lengthMax,
         extensions,
       };
-      if (languages.length > 0) body.languages = languages;
+      if (selectedLanguage) body.languages = [selectedLanguage];
       if (costMin !== "") body.cost_min = Number(costMin);
       if (costMax !== "") body.cost_max = Number(costMax);
 
@@ -228,24 +228,17 @@ export default function Home() {
         {showFilters && (
           <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm">
             <div>
-              <label className="block text-gray-400 mb-1">Language(s)</label>
-              <div className="flex flex-wrap gap-2">
+              <label className="block text-gray-400 mb-1">Language</label>
+              <select
+                value={selectedLanguage}
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1"
+              >
+                <option value="">All languages</option>
                 {(meta?.languages ?? ["English"]).map((lang) => (
-                  <button
-                    type="button"
-                    key={lang}
-                    onClick={() => toggleInArray(languages, lang, setLanguages)}
-                    className={`px-2 py-1 rounded border text-xs ${
-                      languages.includes(lang)
-                        ? "bg-indigo-600 border-indigo-500"
-                        : "bg-gray-800 border-gray-600 text-gray-300"
-                    }`}
-                  >
-                    {lang}
-                  </button>
+                  <option key={lang} value={lang}>{lang}</option>
                 ))}
-              </div>
-              <p className="text-gray-500 text-xs mt-1">None selected = all languages</p>
+              </select>
             </div>
 
             <div>
@@ -282,25 +275,32 @@ export default function Home() {
               <label className="block text-gray-400 mb-1">
                 Character length: {lengthMin}–{lengthMax}
               </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="range"
-                  min={3}
-                  max={15}
-                  value={lengthMin}
-                  onChange={(e) => setLengthMin(Math.min(Number(e.target.value), lengthMax - 1))}
-                  className="w-1/2 accent-indigo-500"
-                />
-                <input
-                  type="range"
-                  min={3}
-                  max={15}
-                  value={lengthMax}
-                  onChange={(e) => setLengthMax(Math.max(Number(e.target.value), lengthMin + 1))}
-                  className="w-1/2 accent-indigo-500"
-                />
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-7">min</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={lengthMin}
+                    onChange={(e) => setLengthMin(Math.min(Number(e.target.value), lengthMax - 1))}
+                    className="flex-1 accent-indigo-500"
+                  />
+                  <span className="text-xs text-gray-300 w-4 text-right">{lengthMin}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-7">max</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={lengthMax}
+                    onChange={(e) => setLengthMax(Math.max(Number(e.target.value), lengthMin + 1))}
+                    className="flex-1 accent-indigo-500"
+                  />
+                  <span className="text-xs text-gray-300 w-4 text-right">{lengthMax}</span>
+                </div>
               </div>
-              <p className="text-gray-500 text-xs mt-1">Left slider = min chars, right slider = max chars</p>
             </div>
 
             <div>
@@ -345,17 +345,17 @@ export default function Home() {
 
             <div>
               <label className="block text-gray-400 mb-1">
-                Score &amp; Heat min: {scoreHeatMin}
+                Trend Index min: {trendIndexMin}
               </label>
               <input
                 type="range"
                 min={1}
                 max={100}
-                value={scoreHeatMin}
-                onChange={(e) => setScoreHeatMin(Number(e.target.value))}
+                value={trendIndexMin}
+                onChange={(e) => setTrendIndexMin(Number(e.target.value))}
                 className="w-full accent-indigo-500"
               />
-              <p className="text-gray-500 text-xs mt-1">Applies to both Trend Score and Heat Index</p>
+              <p className="text-gray-500 text-xs mt-1">Filters on combined trend score &amp; heat index (1–100)</p>
             </div>
           </div>
         )}

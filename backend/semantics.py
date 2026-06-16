@@ -41,6 +41,12 @@ LEXICON: dict[str, dict[str, str]] = {
         "nova": "new", "omni": "all", "vero": "true", "magna": "great", "prima": "first",
         "terra": "earth", "via": "way", "veritas": "truth",
     },
+    "Arabic": {
+        "noor": "light", "sama": "sky", "bahr": "sea", "najm": "star",
+        "qamar": "moon", "shams": "sun", "hayat": "life", "amal": "hope",
+        "zaman": "time", "salam": "peace", "fikra": "idea", "khair": "good",
+        "watan": "homeland", "rawda": "garden", "fajr": "dawn",
+    },
 }
 
 SUPPORTED_LANGUAGES = ["English"] + list(LEXICON.keys())
@@ -89,6 +95,21 @@ def classify_and_explain(name: str, provenance: dict) -> dict:
             "type": "Meaningful",
             "language_origin": lang,
             "meaning": f"'{word}' means '{meaning}' in {lang}",
+        }
+
+    english_root = provenance.get("english_root")
+    if english_root:
+        extra = provenance.get("extra_part", "")
+        if extra:
+            return {
+                "type": "Meaningful",
+                "language_origin": "English",
+                "meaning": f"Combines '{english_root}' with '{extra}'",
+            }
+        return {
+            "type": "Meaningful",
+            "language_origin": "English",
+            "meaning": f"Based on the word '{english_root}'",
         }
 
     prefix = provenance.get("prefix")
