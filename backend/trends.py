@@ -34,27 +34,45 @@ def _fallback_keywords(niche: str) -> list[str]:
 
 def fetch_trend_keywords(niche: str, limit: int = 15) -> list[str]:
     """Return trending keywords for the niche. Falls back to curated seeds on error."""
+    return fetch_trend_data(niche, limit)["keywords"]
+
+
+def fetch_trend_data(niche: str, limit: int = 15) -> dict:
+    """Return {"keywords": [...], "pytrends_scores": {kw: 0-100}, "source": "pytrends"|"fallback"}.
+
+    pytrends is an OPTIONAL data source here, never a hard dependency: the
+    independent trend_engine baseline (see trend_engine.py) works fully
+    without it. When pytrends succeeds we additionally surface its relative
+    interest scores so trend_engine can blend them in with extra weight.
+    """
     try:
         pytrends = TrendReq(hl="en-US", tz=360, timeout=(10, 25), retries=1, backoff_factor=0.5)
         pytrends.build_payload([niche], cat=0, timeframe="today 3-m", geo="", gprop="")
         related = pytrends.related_queries()
 
         keywords: list[str] = []
+        scores: dict[str, int] = {}
         for entry in related.values():
-            for df_key in ("top", "rising"):
+            for df_key, base_score in (("top", 70), ("rising", 85)):
                 df = entry.get(df_key)
                 if df is not None and not df.empty:
-                    for kw in df["query"].tolist():
-                        # extract simple single tokens
-                        for token in str(kw).lower().split():
+                    has_value = "value" in df.columns
+                    for _, row in df.iterrows():
+                        kw = str(row["query"])
+                        raw_value = row["value"] if has_value else None
+                        for token in kw.lower().split():
                             if token.isalpha() and 3 <= len(token) <= 12:
                                 keywords.append(token)
+                                if raw_value is not None:
+                                    scores[token] = max(scores.get(token, 0), min(100, int(raw_value) if raw_value > 0 else base_score))
+                                else:
+                                    scores[token] = max(scores.get(token, 0), base_score)
 
         keywords = list(dict.fromkeys(keywords))[:limit]
         if keywords:
             logger.info("pytrends returned %d keywords for '%s'", len(keywords), niche)
-            return keywords
+            return {"keywords": keywords, "pytrends_scores": scores, "source": "pytrends"}
     except Exception as exc:
-        logger.warning("pytrends failed for '%s': %s – using fallback", niche, exc)
+        logger.warning("pytrends failed for '%s': %s – using independent fallback", niche, exc)
 
-    return _fallback_keywords(niche)
+    return {"keywords": _fallback_keywords(niche), "pytrends_scores": {}, "source": "fallback"}

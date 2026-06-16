@@ -1,4 +1,4 @@
-"""Step 3 - RDAP domain availability checking for .com and .net."""
+"""Step 3 - RDAP domain availability checking for .com, .net, .ai, .org."""
 
 import asyncio
 import logging
@@ -6,19 +6,31 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_RDAP_BASES = {
+# .com/.net hit Verisign's RDAP directly (fast, proven reliable). .org and .ai
+# go through rdap.org, a free public RFC 7484 bootstrap proxy that redirects
+# to the authoritative registry's RDAP server - avoids hardcoding registry
+# endpoints we can't verify for every TLD.
+_DIRECT_BASES = {
     ".com": "https://rdap.verisign.com/com/v1/domain",
     ".net": "https://rdap.verisign.com/net/v1/domain",
 }
-_EXTENSIONS = [".com", ".net"]
+_BOOTSTRAP_BASE = "https://rdap.org/domain"
+
+ALL_EXTENSIONS = [".com", ".net", ".ai", ".org"]
 _BATCH_SIZE = 10
 _DELAY_BETWEEN_BATCHES = 0.75   # seconds — Verisign is stricter than rdap.org
 _REQUEST_TIMEOUT = 8.0
 
 
+def _rdap_url(domain: str, ext: str) -> str:
+    if ext in _DIRECT_BASES:
+        return f"{_DIRECT_BASES[ext]}/{domain}"
+    return f"{_BOOTSTRAP_BASE}/{domain}"
+
+
 async def _check_one(client: httpx.AsyncClient, name: str, ext: str) -> dict:
     domain = name + ext
-    url = f"{_RDAP_BASES[ext]}/{domain}"
+    url = _rdap_url(domain, ext)
     available = False
     try:
         resp = await client.get(url, timeout=_REQUEST_TIMEOUT)
@@ -32,9 +44,15 @@ async def _check_one(client: httpx.AsyncClient, name: str, ext: str) -> dict:
     return {"name": name, "extension": ext, "domain": domain, "available": available}
 
 
-async def check_availability(names: list[str]) -> list[dict]:
-    """Return availability records for all names × [.com, .net]."""
-    pairs = [(name, ext) for name in names for ext in _EXTENSIONS]
+async def check_availability(names: list[str], extensions: list[str] | None = None) -> list[dict]:
+    """Return availability records for all names × the requested extensions.
+
+    Only the requested extensions are checked (default: all 4), which both
+    keeps RDAP call volume down when a filter narrows extensions and avoids
+    unnecessary load on the upstream registries.
+    """
+    exts = extensions or ALL_EXTENSIONS
+    pairs = [(name, ext) for name in names for ext in exts]
     results: list[dict] = []
 
     async with httpx.AsyncClient(
@@ -56,3 +74,11 @@ async def check_availability(names: list[str]) -> list[dict]:
                 await asyncio.sleep(_DELAY_BETWEEN_BATCHES)
 
     return results
+
+
+def group_by_name(records: list[dict]) -> dict[str, dict[str, bool]]:
+    """Collapse flat availability records into name -> {ext: available}."""
+    grouped: dict[str, dict[str, bool]] = {}
+    for rec in records:
+        grouped.setdefault(rec["name"], {})[rec["extension"]] = rec["available"]
+    return grouped
