@@ -120,7 +120,7 @@ def _passes_domain_type_filter(semantic_type: str, domain_type: DomainType) -> b
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}
 
 
 @app.get("/meta")
