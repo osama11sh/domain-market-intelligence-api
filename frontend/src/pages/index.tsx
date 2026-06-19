@@ -429,22 +429,16 @@ export default function Home() {
               </FilterCard>
 
               <FilterCard>
-                <FilterLabel>Number of results: {numResults}</FilterLabel>
-                <div className="pt-0.5">
-                  <input
-                    type="range"
-                    min={5}
-                    max={100}
-                    step={5}
-                    value={numResults}
-                    onChange={(e) => setNumResults(Number(e.target.value))}
-                    className="w-full accent-indigo-500"
-                  />
-                  <div className="flex justify-between text-xs text-gray-600 mt-1">
-                    <span>5</span>
-                    <span>100</span>
-                  </div>
-                </div>
+                <FilterLabel>Number of domains</FilterLabel>
+                <input
+                  type="number"
+                  value={numResults}
+                  min={1}
+                  onChange={(e) => setNumResults(Math.max(1, Number(e.target.value) || 1))}
+                  placeholder="e.g. 20"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <p className="text-gray-600 text-xs">How many domain results to generate</p>
               </FilterCard>
 
             </div>
