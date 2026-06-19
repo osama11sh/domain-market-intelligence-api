@@ -30,7 +30,7 @@ DomainType = Literal["brandable", "meaningful", "both"]
 
 
 class SearchRequest(BaseModel):
-    niche: str
+    niche: Optional[str] = None
     languages: Optional[list[str]] = None
     domain_type: DomainType = "both"
     trend_location: str = "auto"
@@ -40,13 +40,16 @@ class SearchRequest(BaseModel):
     cost_max: Optional[float] = None
     score_heat_min: Optional[int] = None
     extensions: Optional[list[str]] = None
+    num_results: Optional[int] = None
 
     @field_validator("niche")
     @classmethod
-    def niche_not_empty(cls, v: str) -> str:
+    def niche_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
         v = v.strip()
         if not v:
-            raise ValueError("niche must not be empty")
+            return None
         if len(v) > 80:
             raise ValueError("niche too long (max 80 chars)")
         return v
@@ -125,11 +128,23 @@ async def meta():
     }
 
 
+@app.get("/trending-niches")
+async def trending_niches(limit: int = 6):
+    """Return the top trending niches for auto-niche selection.
+
+    Scores are computed by the independent baseline (no external call needed).
+    The frontend can call this when the niche field is empty to show suggestions.
+    """
+    return {"niches": trend_engine.get_trending_niches(limit=max(1, min(limit, 10)))}
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search_domains(req: SearchRequest):
-    niche = req.niche
+    # When niche is empty, pick the top trending niche from the scored baseline.
+    niche = req.niche or trend_engine.get_trending_niches(limit=1)[0]["niche"]
     category = trend_engine.category_for_niche(niche)
     extensions = req.extensions or ALL_EXTENSIONS
+    candidate_limit = min(max(req.num_results or 20, 5), 100)
 
     # Step 1: Trend keywords (pytrends optional - independent trend_engine baseline always works)
     trend_data = fetch_trend_data(niche)
@@ -151,7 +166,7 @@ async def search_domains(req: SearchRequest):
             continue
         filtered_candidates[name] = provenance
 
-    names_to_check = sorted(filtered_candidates.keys())[:60]
+    names_to_check = sorted(filtered_candidates.keys())[:candidate_limit * 3]
 
     # Step 3: RDAP availability across the requested extensions only
     availability_records = await check_availability(names_to_check, extensions)
@@ -190,6 +205,7 @@ async def search_domains(req: SearchRequest):
             domains.append(DomainResult(**enriched))
 
     domains.sort(key=lambda r: r.score, reverse=True)
+    domains = domains[:candidate_limit]
 
     return SearchResponse(
         domains=domains,

@@ -25,6 +25,14 @@ _CATEGORY_BASELINE: dict[str, int] = {
     "finance": 60, "fashion": 57, "gaming": 72, "beauty": 59, "generic": 50,
 }
 
+# Ranked auto-niche candidates: (niche_name, base_interest_score).
+# Scores reflect approximate relative search volume by category; updated weekly via momentum.
+_AUTO_NICHE_CANDIDATES: list[tuple[str, int]] = [
+    ("tech", 82), ("gaming", 76), ("fitness", 72), ("finance", 70),
+    ("pets", 68), ("food", 66), ("crypto", 64), ("beauty", 63),
+    ("travel", 62), ("fashion", 61),
+]
+
 # Top markets per category as relative interest weights (sum ~100, "Other" implied).
 _GEO_WEIGHTS: dict[str, dict[str, int]] = {
     "fitness": {"US": 34, "GB": 14, "AU": 12, "CA": 10, "DE": 8},
@@ -84,14 +92,46 @@ def base_trend_score(token: str, category: str, pytrends_score: int | None = Non
     return max(1, heuristic)
 
 
+def _name_variation(name: str) -> int:
+    """Small per-name delta (-8..+8) so domains with the same keyword get distinct scores."""
+    iso_week = datetime.date.today().isocalendar()[1]
+    digest = hashlib.sha256(f"name-{name}-{iso_week}".encode()).hexdigest()
+    return (int(digest[4:8], 16) % 17) - 8
+
+
 def domain_trend_score(name: str, keywords: list[str], category: str,
                         pytrends_scores: dict[str, int] | None = None) -> int:
-    """Trend score for a full domain name: max of its constituent keyword matches."""
+    """Trend score for a full domain name, weighted by match quality.
+
+    Match tiers (strongest → weakest):
+      exact substring (weight 3.0) > name-in-keyword (weight 2.0) > prefix (weight 1.0)
+
+    A weighted average of matched scores is used instead of max() so that
+    different keyword matches produce differentiated results. A small per-name
+    hash delta ensures two domains with the same best keyword still differ.
+    """
     pytrends_scores = pytrends_scores or {}
-    matched = [kw for kw in keywords if kw in name or name in kw]
-    if not matched:
-        return base_trend_score(name[:6], category)
-    return max(base_trend_score(kw, category, pytrends_scores.get(kw)) for kw in matched)
+    scores: list[float] = []
+    weights: list[float] = []
+
+    for kw in keywords:
+        kw_score = base_trend_score(kw, category, pytrends_scores.get(kw))
+        if kw in name:
+            scores.append(kw_score)
+            weights.append(3.0)
+        elif name in kw:
+            scores.append(kw_score)
+            weights.append(2.0)
+        elif len(kw) >= 4 and (kw[:4] in name or name[:4] == kw[:4]):
+            scores.append(kw_score * 0.75)
+            weights.append(1.0)
+
+    if not scores:
+        base = base_trend_score(name[:6], category)
+        return _clamp(base + _name_variation(name))
+
+    weighted_avg = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
+    return max(1, _clamp(weighted_avg + _name_variation(name)))
 
 
 def heat_index(trend_score: int, available_count: int, checked_count: int) -> int:
@@ -139,3 +179,30 @@ def expected_monthly_clicks(heat: int, trend_score: int, total_score: int, categ
     # scaled up by how "hot" and well-scored the name is.
     share = (heat / 100) * (trend_score / 100) * (total_score / 100) * 0.006
     return max(5, round(base_volume * share))
+
+
+def get_trending_niches(limit: int = 6) -> list[dict]:
+    """Return the top trending niches for auto-niche selection.
+
+    Scores the curated candidate list using the same weekly-momentum function
+    as individual keywords, so rankings shift gently over time without any
+    external call. Always returns a valid list (graceful baseline fallback).
+    """
+    scored = []
+    for niche, base in _AUTO_NICHE_CANDIDATES:
+        trend_score = _clamp(base + _momentum(niche))
+        # heat_index for a niche is slightly lower than its trend score
+        # (no scarcity signal available at the niche level)
+        heat = _clamp(trend_score * 0.85 + 5)
+        scored.append({
+            "niche": niche,
+            "trend_score": trend_score,
+            "heat_index": heat,
+            "category": niche if niche in _CATEGORY_BASELINE else "generic",
+            "geo_breakdown": {
+                _COUNTRY_NAMES.get(c, c): w
+                for c, w in _GEO_WEIGHTS.get(niche, _GEO_WEIGHTS["generic"]).items()
+            },
+        })
+    scored.sort(key=lambda x: x["trend_score"], reverse=True)
+    return scored[:limit]

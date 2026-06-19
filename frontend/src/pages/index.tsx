@@ -27,6 +27,12 @@ type Meta = {
 
 type DomainType = "brandable" | "meaningful" | "both";
 
+type TrendingNiche = {
+  niche: string;
+  trend_score: number;
+  heat_index: number;
+};
+
 type SortKey =
   | "name"
   | "score"
@@ -49,6 +55,12 @@ function formatGeo(geo: Record<string, number>): string {
     .join(", ");
 }
 
+function ScoreBadge({ value }: { value: number }) {
+  const color =
+    value >= 75 ? "text-green-400" : value >= 50 ? "text-yellow-400" : "text-gray-400";
+  return <span className={`font-bold tabular-nums ${color}`}>{value}</span>;
+}
+
 function RegistrarBadges({ avail }: { avail: Record<string, boolean | null> }) {
   return (
     <span className="flex gap-1 font-mono text-xs">
@@ -58,7 +70,11 @@ function RegistrarBadges({ avail }: { avail: Record<string, boolean | null> }) {
           v === true ? "text-green-400" : v === false ? "text-red-400" : "text-gray-600";
         const symbol = v === true ? "✓" : v === false ? "✗" : "–";
         return (
-          <span key={ext} className={color} title={`${ext}: ${v === null ? "not checked" : v ? "available" : "taken"}`}>
+          <span
+            key={ext}
+            className={color}
+            title={`${ext}: ${v === null ? "not checked" : v ? "available" : "taken"}`}
+          >
             {ext.slice(1)}
             {symbol}
           </span>
@@ -68,35 +84,50 @@ function RegistrarBadges({ avail }: { avail: Record<string, boolean | null> }) {
   );
 }
 
+function FilterLabel({ children }: { children: React.ReactNode }) {
+  return <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">{children}</label>;
+}
+
+function FilterCard({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-col gap-1">{children}</div>;
+}
+
 export default function Home() {
   const [niche, setNiche] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<DomainResult[] | null>(null);
   const [keywords, setKeywords] = useState<string[]>([]);
   const [trendSource, setTrendSource] = useState<string>("");
+  const [resolvedNiche, setResolvedNiche] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortAsc, setSortAsc] = useState(false);
 
   const [meta, setMeta] = useState<Meta | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [trendingNiches, setTrendingNiches] = useState<TrendingNiche[]>([]);
 
   // Filter state
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const [domainType, setDomainType] = useState<DomainType>("both");
   const [trendLocation, setTrendLocation] = useState("auto");
   const [lengthMin, setLengthMin] = useState(3);
-  const [lengthMax, setLengthMax] = useState(20);
+  const [lengthMax, setLengthMax] = useState(12);
   const [costMin, setCostMin] = useState("");
   const [costMax, setCostMax] = useState("");
   const [trendIndexMin, setTrendIndexMin] = useState(1);
   const [extensions, setExtensions] = useState<string[]>(ALL_EXTENSIONS);
+  const [numResults, setNumResults] = useState(20);
 
   useEffect(() => {
     fetch(`${API_URL}/meta`)
       .then((r) => r.json())
       .then((d: Meta) => setMeta(d))
       .catch(() => setMeta(null));
+    fetch(`${API_URL}/trending-niches?limit=8`)
+      .then((r) => r.json())
+      .then((d: { niches: TrendingNiche[] }) => setTrendingNiches(d.niches ?? []))
+      .catch(() => setTrendingNiches([]));
   }, []);
 
   function toggleInArray<T>(arr: T[], val: T, setter: (v: T[]) => void) {
@@ -109,20 +140,21 @@ export default function Home() {
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    if (!niche.trim()) return;
     setLoading(true);
     setError(null);
     setResults(null);
+    setResolvedNiche("");
     try {
       const body: Record<string, unknown> = {
-        niche: niche.trim(),
         domain_type: domainType,
         trend_location: trendLocation,
         score_heat_min: trendIndexMin,
         min_length: lengthMin,
         max_length: lengthMax,
         extensions,
+        num_results: numResults,
       };
+      if (niche.trim()) body.niche = niche.trim();
       if (selectedLanguage) body.languages = [selectedLanguage];
       if (costMin !== "") body.cost_min = Number(costMin);
       if (costMax !== "") body.cost_max = Number(costMax);
@@ -140,6 +172,7 @@ export default function Home() {
       setResults(data.domains);
       setKeywords(data.keyword_seeds);
       setTrendSource(data.trend_source);
+      setResolvedNiche(data.niche);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(
@@ -174,290 +207,357 @@ export default function Home() {
     : [];
 
   function SortArrow({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <span className="text-gray-500 ml-1">↕</span>;
-    return <span className="ml-1">{sortAsc ? "↑" : "↓"}</span>;
+    if (sortKey !== col) return <span className="text-gray-600 ml-1">↕</span>;
+    return <span className="ml-1 text-indigo-400">{sortAsc ? "↑" : "↓"}</span>;
   }
 
-  const columns: { key: SortKey; label: string }[] = [
+  const sortableColumns: { key: SortKey; label: string }[] = [
     { key: "name", label: "Domain" },
     { key: "type", label: "Type" },
-    { key: "score", label: "Total" },
-    { key: "trend_score", label: "Trend" },
-    { key: "heat_index", label: "Heat" },
+    { key: "score", label: "Total Score" },
+    { key: "trend_score", label: "Trend Score" },
+    { key: "heat_index", label: "Trend Index" },
     { key: "registration_cost_usd", label: "Cost" },
     { key: "expected_monthly_clicks", label: "Clicks/mo" },
   ];
 
-  return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-1 text-indigo-400">
-          Domain Market Intelligence
-        </h1>
-        <p className="text-gray-400 mb-6 text-sm">
-          Enter a niche to discover available, scored domain names with trend,
-          semantics, and multi-language insight.
-        </p>
+  const selectClass = "w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500";
 
+  return (
+    <main className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-gray-950/95 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
+          <div className="flex-1">
+            <h1 className="text-xl font-bold text-indigo-400 leading-none">Domain Market Intelligence</h1>
+            <p className="text-gray-500 text-xs mt-0.5">Discover available, scored domains with trend &amp; multi-language insight</p>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* Search bar */}
         <form onSubmit={handleSearch} className="flex gap-3 mb-4">
-          <input
-            type="text"
-            value={niche}
-            onChange={(e) => setNiche(e.target.value)}
-            placeholder="e.g. fitness, crypto, travel"
-            className="flex-1 rounded-lg bg-gray-800 border border-gray-600 px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            maxLength={80}
-            disabled={loading}
-          />
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={niche}
+              onChange={(e) => setNiche(e.target.value)}
+              placeholder="Niche (optional) — e.g. fitness, crypto, travel"
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+              maxLength={80}
+              disabled={loading}
+            />
+            {!niche.trim() && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400/70 pointer-events-none">
+                auto-trending
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
-            className="px-4 py-2 bg-gray-800 border border-gray-600 hover:bg-gray-700 rounded-lg text-sm transition"
+            className={`px-4 py-2.5 border rounded-lg text-sm transition whitespace-nowrap ${
+              showFilters
+                ? "bg-indigo-900/40 border-indigo-600 text-indigo-300"
+                : "bg-gray-800 border-gray-700 hover:bg-gray-700 text-gray-300"
+            }`}
           >
             Filters {showFilters ? "▲" : "▼"}
           </button>
           <button
             type="submit"
-            disabled={loading || !niche.trim()}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold transition"
+            disabled={loading}
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold transition text-sm whitespace-nowrap"
           >
             {loading ? "Searching…" : "Find Domains"}
           </button>
         </form>
 
+        {/* Trending niche chips — shown when niche field is empty */}
+        {!niche.trim() && trendingNiches.length > 0 && !loading && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs text-gray-500 shrink-0">Trending:</span>
+            {trendingNiches.map((n) => (
+              <button
+                key={n.niche}
+                type="button"
+                onClick={() => setNiche(n.niche)}
+                title={`Trend score: ${n.trend_score}  Heat: ${n.heat_index}`}
+                className="px-3 py-1 rounded-full text-xs border border-indigo-700/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 hover:border-indigo-500 transition capitalize"
+              >
+                {n.niche}
+                <span className="ml-1.5 text-indigo-500 tabular-nums">{n.trend_score}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Filter panel */}
         {showFilters && (
-          <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm">
-            <div>
-              <label className="block text-gray-400 mb-1">Language</label>
-              <select
-                value={selectedLanguage}
-                onChange={(e) => setSelectedLanguage(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1"
-              >
-                <option value="">All languages</option>
-                {(meta?.languages ?? ["English"]).map((lang) => (
-                  <option key={lang} value={lang}>{lang}</option>
-                ))}
-              </select>
-            </div>
+          <div className="mb-6 bg-gray-900 border border-gray-700 rounded-xl p-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
 
-            <div>
-              <label className="block text-gray-400 mb-1">Domain type</label>
-              <select
-                value={domainType}
-                onChange={(e) => setDomainType(e.target.value as DomainType)}
-                className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1"
-              >
-                <option value="both">Both</option>
-                <option value="brandable">Brandable</option>
-                <option value="meaningful">Meaningful</option>
-              </select>
-            </div>
+              {/* --- Search criteria group --- */}
+              <FilterCard>
+                <FilterLabel>Language origin</FilterLabel>
+                <select
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">All languages</option>
+                  {(meta?.languages ?? ["English"]).map((lang) => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
+                </select>
+              </FilterCard>
 
-            <div>
-              <label className="block text-gray-400 mb-1">Trend location</label>
-              <select
-                value={trendLocation}
-                onChange={(e) => setTrendLocation(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1"
-              >
-                <option value="auto">Auto</option>
-                <option value="global">Global</option>
-                {(meta?.countries ?? []).map(([code, name]) => (
-                  <option key={code} value={code}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <FilterCard>
+                <FilterLabel>Domain type</FilterLabel>
+                <select
+                  value={domainType}
+                  onChange={(e) => setDomainType(e.target.value as DomainType)}
+                  className={selectClass}
+                >
+                  <option value="both">Both</option>
+                  <option value="brandable">Brandable</option>
+                  <option value="meaningful">Meaningful</option>
+                </select>
+              </FilterCard>
 
-            <div>
-              <label className="block text-gray-400 mb-1">
-                Character length: {lengthMin}–{lengthMax}
-              </label>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-7">min</span>
+              <FilterCard>
+                <FilterLabel>Trend location</FilterLabel>
+                <select
+                  value={trendLocation}
+                  onChange={(e) => setTrendLocation(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="global">Global</option>
+                  {(meta?.countries ?? []).map(([code, name]) => (
+                    <option key={code} value={code}>{name}</option>
+                  ))}
+                </select>
+              </FilterCard>
+
+              <FilterCard>
+                <FilterLabel>Extensions</FilterLabel>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {ALL_EXTENSIONS.map((ext) => (
+                    <button
+                      type="button"
+                      key={ext}
+                      onClick={() => toggleInArray(extensions, ext, setExtensions)}
+                      className={`px-2.5 py-1 rounded-md border text-xs font-mono transition ${
+                        extensions.includes(ext)
+                          ? "bg-indigo-600 border-indigo-500 text-white"
+                          : "bg-gray-800 border-gray-600 text-gray-400 hover:border-gray-500"
+                      }`}
+                    >
+                      {ext}
+                    </button>
+                  ))}
+                </div>
+              </FilterCard>
+
+              {/* --- Technical filters group --- */}
+              <FilterCard>
+                <FilterLabel>Character length: {lengthMin}–{lengthMax}</FilterLabel>
+                <div className="flex flex-col gap-2 pt-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 w-6">min</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={20}
+                      value={lengthMin}
+                      onChange={(e) => setLengthMin(Math.min(Number(e.target.value), lengthMax - 1))}
+                      className="flex-1 accent-indigo-500"
+                    />
+                    <span className="text-xs text-gray-300 w-4 text-right tabular-nums">{lengthMin}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 w-6">max</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={20}
+                      value={lengthMax}
+                      onChange={(e) => setLengthMax(Math.max(Number(e.target.value), lengthMin + 1))}
+                      className="flex-1 accent-indigo-500"
+                    />
+                    <span className="text-xs text-gray-300 w-4 text-right tabular-nums">{lengthMax}</span>
+                  </div>
+                </div>
+              </FilterCard>
+
+              <FilterCard>
+                <FilterLabel>Cost range (USD/yr)</FilterLabel>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="min"
+                    value={costMin}
+                    onChange={(e) => setCostMin(e.target.value)}
+                    className="w-1/2 bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <input
+                    type="number"
+                    placeholder="max"
+                    value={costMax}
+                    onChange={(e) => setCostMax(e.target.value)}
+                    className="w-1/2 bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </FilterCard>
+
+              {/* --- Trend / results group --- */}
+              <FilterCard>
+                <FilterLabel>Trend Index min: {trendIndexMin}</FilterLabel>
+                <div className="pt-0.5">
                   <input
                     type="range"
                     min={1}
-                    max={20}
-                    value={lengthMin}
-                    onChange={(e) => setLengthMin(Math.min(Number(e.target.value), lengthMax - 1))}
-                    className="flex-1 accent-indigo-500"
+                    max={100}
+                    value={trendIndexMin}
+                    onChange={(e) => setTrendIndexMin(Number(e.target.value))}
+                    className="w-full accent-indigo-500"
                   />
-                  <span className="text-xs text-gray-300 w-4 text-right">{lengthMin}</span>
+                  <p className="text-gray-600 text-xs mt-1">Filters by combined trend score &amp; heat (1–100)</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-7">max</span>
+              </FilterCard>
+
+              <FilterCard>
+                <FilterLabel>Number of results: {numResults}</FilterLabel>
+                <div className="pt-0.5">
                   <input
                     type="range"
-                    min={1}
-                    max={20}
-                    value={lengthMax}
-                    onChange={(e) => setLengthMax(Math.max(Number(e.target.value), lengthMin + 1))}
-                    className="flex-1 accent-indigo-500"
+                    min={5}
+                    max={100}
+                    step={5}
+                    value={numResults}
+                    onChange={(e) => setNumResults(Number(e.target.value))}
+                    className="w-full accent-indigo-500"
                   />
-                  <span className="text-xs text-gray-300 w-4 text-right">{lengthMax}</span>
+                  <div className="flex justify-between text-xs text-gray-600 mt-1">
+                    <span>5</span>
+                    <span>100</span>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </FilterCard>
 
-            <div>
-              <label className="block text-gray-400 mb-1">Cost range (USD/yr)</label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  placeholder="min"
-                  value={costMin}
-                  onChange={(e) => setCostMin(e.target.value)}
-                  className="w-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1"
-                />
-                <input
-                  type="number"
-                  placeholder="max"
-                  value={costMax}
-                  onChange={(e) => setCostMax(e.target.value)}
-                  className="w-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">Extensions</label>
-              <div className="flex gap-2">
-                {ALL_EXTENSIONS.map((ext) => (
-                  <button
-                    type="button"
-                    key={ext}
-                    onClick={() => toggleInArray(extensions, ext, setExtensions)}
-                    className={`px-2 py-1 rounded border text-xs ${
-                      extensions.includes(ext)
-                        ? "bg-indigo-600 border-indigo-500"
-                        : "bg-gray-800 border-gray-600 text-gray-300"
-                    }`}
-                  >
-                    {ext}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">
-                Trend Index min: {trendIndexMin}
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={100}
-                value={trendIndexMin}
-                onChange={(e) => setTrendIndexMin(Number(e.target.value))}
-                className="w-full accent-indigo-500"
-              />
-              <p className="text-gray-500 text-xs mt-1">Filters on combined trend score &amp; heat index (1–100)</p>
             </div>
           </div>
         )}
 
+        {/* Loading state */}
         {loading && (
-          <div className="text-center py-12">
+          <div className="text-center py-16">
             <div className="inline-block w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-gray-400">
-              Searching trends and checking availability… (10–30 sec)
-            </p>
+            <p className="text-gray-400 text-sm">Searching trends and checking availability… (10–30 sec)</p>
           </div>
         )}
 
+        {/* Error state */}
         {error && (
-          <div className="bg-red-900/40 border border-red-500 rounded-lg p-4 text-red-300 mb-4">
+          <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 text-red-300 mb-4 text-sm">
             {error}
           </div>
         )}
 
+        {/* Results */}
         {results !== null && !loading && (
           <>
-            <div className="mb-4 text-sm text-gray-400 flex flex-wrap gap-4 items-center">
-              {keywords.length > 0 && (
+            {/* Results meta bar */}
+            <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 items-center text-xs text-gray-500">
+              {resolvedNiche && (
                 <span>
-                  <span className="text-gray-500">Trend keywords: </span>
-                  {keywords.join(", ")}
+                  Niche: <span className="text-gray-300 font-medium">{resolvedNiche}</span>
                 </span>
               )}
-              <span className="text-gray-500">
-                Trend source: <span className="text-gray-300">{trendSource}</span>
+              {keywords.length > 0 && (
+                <span>
+                  Trend keywords: <span className="text-gray-300">{keywords.join(", ")}</span>
+                </span>
+              )}
+              <span>
+                Source: <span className="text-gray-300">{trendSource}</span>
               </span>
-              <span className="text-gray-500 ml-auto">
+              <span className="ml-auto text-gray-400 font-medium">
                 {displayed.length} result{displayed.length !== 1 ? "s" : ""}
               </span>
             </div>
 
             {displayed.length === 0 ? (
-              <p className="text-gray-500 py-8 text-center">
-                No available domains found for this niche/filter combination.
-                Try widening your filters.
-              </p>
+              <div className="text-center py-16 text-gray-500 border border-gray-800 rounded-xl">
+                <p className="text-base mb-1">No available domains found</p>
+                <p className="text-xs text-gray-600">Try widening your filters or a different niche</p>
+              </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-gray-700">
+              <div className="overflow-x-auto rounded-xl border border-gray-800">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-800 text-gray-300">
+                  <thead className="bg-gray-900 border-b border-gray-800 text-xs text-gray-400 uppercase tracking-wide">
                     <tr>
-                      {columns.map((col) => (
+                      {sortableColumns.map((col) => (
                         <th
                           key={col.key}
                           onClick={() => toggleSort(col.key)}
-                          className="px-3 py-3 text-left cursor-pointer hover:bg-gray-700 select-none whitespace-nowrap"
+                          className="px-3 py-3 text-left cursor-pointer hover:bg-gray-800 select-none whitespace-nowrap transition"
                         >
                           {col.label}
                           <SortArrow col={col.key} />
                         </th>
                       ))}
-                      <th className="px-3 py-3 text-left">Language</th>
+                      <th className="px-3 py-3 text-left whitespace-nowrap">Language</th>
                       <th className="px-3 py-3 text-left">Meaning / Construction</th>
-                      <th className="px-3 py-3 text-left">Registrar availability</th>
-                      <th className="px-3 py-3 text-left">Geo breakdown</th>
+                      <th className="px-3 py-3 text-left whitespace-nowrap">Registrar Avail.</th>
+                      <th className="px-3 py-3 text-left whitespace-nowrap">Geo Breakdown</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-800/60">
                     {displayed.map((r, i) => (
                       <tr
                         key={r.name + r.extension + i}
-                        className={i % 2 === 0 ? "bg-gray-900" : "bg-gray-900/50"}
+                        className="hover:bg-gray-800/40 transition-colors"
                       >
-                        <td className="px-3 py-2 font-mono text-indigo-300 whitespace-nowrap">
-                          {r.name}
-                          {r.extension}
+                        <td className="px-3 py-2.5 font-mono text-indigo-300 whitespace-nowrap font-medium">
+                          {r.name}{r.extension}
                         </td>
-                        <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{r.type}</td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`font-bold ${
-                              r.score >= 75
-                                ? "text-green-400"
-                                : r.score >= 50
-                                ? "text-yellow-400"
-                                : "text-gray-400"
-                            }`}
-                          >
-                            {r.score}
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
+                            r.type === "Brandable"
+                              ? "border-purple-700 text-purple-300 bg-purple-900/20"
+                              : "border-blue-700 text-blue-300 bg-blue-900/20"
+                          }`}>
+                            {r.type}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-gray-300">{r.trend_score}</td>
-                        <td className="px-3 py-2 text-gray-300">{r.heat_index}</td>
-                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-center tabular-nums">
+                          <ScoreBadge value={r.score} />
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-300 text-center tabular-nums">{r.trend_score}</td>
+                        <td className="px-3 py-2.5 text-center tabular-nums">
+                          <span className={`${r.heat_index >= 60 ? "text-orange-400" : "text-gray-400"}`}>
+                            {r.heat_index}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap tabular-nums">
                           ${r.registration_cost_usd}/yr
                         </td>
-                        <td className="px-3 py-2 text-gray-300">{r.expected_monthly_clicks}</td>
-                        <td className="px-3 py-2 text-gray-300 whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-gray-300 tabular-nums">
+                          {r.expected_monthly_clicks.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap text-xs">
                           {r.language_origin}
                         </td>
-                        <td className="px-3 py-2 text-gray-400 max-w-xs" title={r.meaning}>
+                        <td className="px-3 py-2.5 text-gray-400 max-w-xs text-xs" title={r.meaning}>
                           {r.meaning}
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-2.5">
                           <RegistrarBadges avail={r.registrar_availability} />
                         </td>
-                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap text-xs">
+                        <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap text-xs">
                           {formatGeo(r.geo_breakdown)}
                         </td>
                       </tr>
@@ -466,6 +566,10 @@ export default function Home() {
                 </table>
               </div>
             )}
+
+            <p className="text-xs text-gray-700 mt-3 text-right">
+              Showing {displayed.length} of up to {numResults} requested results
+            </p>
           </>
         )}
       </div>
