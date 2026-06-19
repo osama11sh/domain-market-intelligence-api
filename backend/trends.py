@@ -26,9 +26,9 @@ def _fallback_keywords(niche: str) -> list[str]:
     niche_lower = niche.lower()
     seeds = _NICHE_SEEDS.get(niche_lower, [])
     if not seeds:
-        # Build generic seeds from the niche word itself
-        words = niche_lower.split()
-        seeds = words + [w[:4] for w in words if len(w) > 4] + _GENERIC_SEEDS
+        # Build generic seeds from the niche word itself (complete words only — no truncation)
+        words = [w for w in niche_lower.split() if w.isalpha()]
+        seeds = words + _GENERIC_SEEDS
     return list(dict.fromkeys(seeds))[:15]
 
 

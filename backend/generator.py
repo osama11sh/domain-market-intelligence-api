@@ -19,13 +19,15 @@ _PORTMANTEAU_GLUE = ["", "a", "o", "i", "e"]
 # Covers 3-8 char words that make strong domain building-blocks.
 _ENGLISH_ROOTS = [
     # 3-char roots
-    "ace", "arc", "art", "bay", "bit", "box", "bus", "cue", "day", "dev",
-    "dip", "dot", "era", "fit", "fix", "gem", "hub", "ice", "jet", "joy",
-    "key", "kit", "lab", "law", "led", "log", "map", "max", "net", "nix",
-    "oak", "opt", "orb", "own", "pad", "pay", "pen", "pit", "pod", "pop",
-    "pro", "pub", "raw", "ray", "ref", "rep", "rid", "run", "sap", "set",
-    "sky", "spa", "spy", "sub", "sum", "tab", "tap", "tax", "tea", "tip",
-    "top", "toy", "van", "vim", "vow", "wax", "web", "win", "wit",
+    "ace", "arc", "art", "awe", "bay", "bee", "bit", "bow", "box", "bud",
+    "bus", "cue", "day", "dev", "dew", "dip", "dot", "duo", "elf", "era",
+    "fit", "fix", "fly", "fun", "gem", "hue", "hub", "ice", "jet", "joy",
+    "key", "kin", "kit", "lab", "law", "led", "log", "lux", "map", "max",
+    "mix", "net", "nix", "oak", "opt", "orb", "owl", "own", "pad", "pay",
+    "pen", "pit", "pod", "pop", "pro", "pub", "raw", "ray", "ref", "rep",
+    "rid", "run", "sap", "set", "sky", "spa", "spy", "sub", "sum", "sun",
+    "tab", "tap", "tax", "tea", "tip", "top", "toy", "uni", "van", "vim",
+    "vow", "wax", "web", "win", "wit", "wow", "zen", "zip", "zoo",
     # 4-char roots
     "aide", "arch", "atom", "axes", "base", "beat", "best", "bite", "bolt",
     "bond", "book", "buzz", "calm", "camp", "card", "care", "cash", "chip",
@@ -57,6 +59,8 @@ _ENGLISH_ROOTS = [
     "turn", "type", "unit", "used", "user", "view", "vine", "void", "volt",
     "vote", "wake", "walk", "wall", "warp", "wave", "weld", "wire", "wise",
     "wish", "word", "work", "writ", "yard", "zone",
+    # additional 4-char roots for richer short-domain coverage
+    "bold", "glee", "lush", "noir", "perk", "pure",
     # 5-8 char roots
     "alert", "align", "allow", "apply", "arise", "aside", "atlas", "avoid",
     "basis", "begin", "blade", "blaze", "block", "bloom", "boost", "brand",
@@ -92,6 +96,9 @@ _ENGLISH_ROOTS = [
     "ultra", "union", "unity", "until", "upper", "urban", "usage", "vault",
     "vance", "value", "verse", "video", "vigor", "viral", "vista", "vital",
     "voice", "watch", "water", "world", "worth", "write", "yield",
+    # additional 5-char roots for stronger brand vocabulary
+    "bliss", "brisk", "charm", "crisp", "gleam", "noble", "pride", "quest",
+    "shine", "valor", "vivid", "zesty",
 ]
 
 _VALID_RE = re.compile(r'^[a-z]{1,20}$')
