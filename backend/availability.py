@@ -31,13 +31,15 @@ def _rdap_url(domain: str, ext: str) -> str:
 async def _check_one(client: httpx.AsyncClient, name: str, ext: str) -> dict:
     domain = name + ext
     url = _rdap_url(domain, ext)
-    available = False
+    available: bool | None = False
     try:
         resp = await client.get(url, timeout=_REQUEST_TIMEOUT)
         if resp.status_code == 404:
             available = True
         elif resp.status_code == 200:
             available = False
+        elif resp.status_code == 403:
+            available = None  # CentralNic blocks RDAP queries for .store/.site/.online — treat as unknown
         # 429 / 5xx → assume registered (conservative)
     except (httpx.TimeoutException, httpx.RequestError):
         pass  # treat as registered on network error
@@ -76,9 +78,9 @@ async def check_availability(names: list[str], extensions: list[str] | None = No
     return results
 
 
-def group_by_name(records: list[dict]) -> dict[str, dict[str, bool]]:
+def group_by_name(records: list[dict]) -> dict[str, dict[str, bool | None]]:
     """Collapse flat availability records into name -> {ext: available}."""
-    grouped: dict[str, dict[str, bool]] = {}
+    grouped: dict[str, dict[str, bool | None]] = {}
     for rec in records:
         grouped.setdefault(rec["name"], {})[rec["extension"]] = rec["available"]
     return grouped

@@ -101,7 +101,8 @@ def enrich_domain(
     category: str,
     trend_location: str,
     pytrends_scores: dict[str, int],
-    registrar_availability: dict[str, bool],
+    registrar_availability: dict[str, bool | None],
+    available: bool | None = True,
 ) -> dict:
     """Build the full enriched result for one (name, extension) result row."""
     score_result = score_domain_breakdown(name, extension, keywords)
@@ -121,7 +122,7 @@ def enrich_domain(
     return {
         "name": name,
         "extension": extension,
-        "available": True,
+        "available": available,
         "length": len(name),
         "registration_cost_usd": registration_cost_usd(extension),
         "score": total,

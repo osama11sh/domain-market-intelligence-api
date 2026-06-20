@@ -76,7 +76,7 @@ class ScoreBreakdown(BaseModel):
 class DomainResult(BaseModel):
     name: str
     extension: str
-    available: bool
+    available: Optional[bool]
     score: int
     length: int
     registration_cost_usd: int
@@ -180,11 +180,12 @@ async def search_domains(req: SearchRequest):
             e: ext_map.get(e) for e in ALL_EXTENSIONS
         }
         for ext, available in ext_map.items():
-            if not available:
+            if available is False:
                 continue
             enriched = enrich_domain(
                 name=name,
                 extension=ext,
+                available=available,
                 keywords=keywords,
                 provenance=filtered_candidates[name],
                 category=category,
