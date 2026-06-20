@@ -213,8 +213,11 @@ def generate_candidates(niche: str, keywords: list[str], languages: list[str] | 
     if languages is None or lexicon_langs:
         candidates.update(_lexicon_candidates(niche_token, lexicon_langs))
 
-    # Expand with broad English roots wordbank for richer short-domain candidates.
-    candidates.update(_english_root_candidates(niche_token, all_tokens))
+    # Expand with broad English roots wordbank — skip when caller restricted to a
+    # specific non-English language so lexicon candidates aren't crowded out.
+    non_english_filter = languages is not None and all(l != "English" for l in languages)
+    if not non_english_filter:
+        candidates.update(_english_root_candidates(niche_token, all_tokens))
 
     # Prioritise niche/keyword-containing names, then shorter names, then alpha.
     def _priority(name: str) -> tuple:
