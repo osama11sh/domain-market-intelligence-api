@@ -63,9 +63,8 @@ function ScoreBadge({ value }: { value: number }) {
 
 function RegistrarBadges({ avail }: { avail: Record<string, boolean | null> }) {
   return (
-    <span className="flex gap-1 font-mono text-xs">
-      {ALL_EXTENSIONS.map((ext) => {
-        const v = avail[ext];
+    <span className="flex gap-1 flex-wrap font-mono text-xs">
+      {Object.entries(avail).map(([ext, v]) => {
         const color =
           v === true ? "text-green-400" : v === false ? "text-red-400" : "text-gray-600";
         const symbol = v === true ? "✓" : v === false ? "✗" : "–";
@@ -122,7 +121,10 @@ export default function Home() {
   useEffect(() => {
     fetch(`${API_URL}/meta`)
       .then((r) => r.json())
-      .then((d: Meta) => setMeta(d))
+      .then((d: Meta) => {
+        setMeta(d);
+        if (d.extensions?.length) setExtensions(d.extensions);
+      })
       .catch(() => setMeta(null));
     fetch(`${API_URL}/trending-niches?limit=8`)
       .then((r) => r.json())
@@ -344,7 +346,7 @@ export default function Home() {
               <FilterCard>
                 <FilterLabel>Extensions</FilterLabel>
                 <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {ALL_EXTENSIONS.map((ext) => (
+                  {(meta?.extensions ?? ALL_EXTENSIONS).map((ext) => (
                     <button
                       type="button"
                       key={ext}
