@@ -16,7 +16,7 @@ _DIRECT_BASES = {
 }
 _BOOTSTRAP_BASE = "https://rdap.org/domain"
 
-ALL_EXTENSIONS = [".com", ".net", ".ai", ".org"]
+ALL_EXTENSIONS = [".com", ".net", ".ai", ".org", ".store", ".site", ".online", ".co", ".io", ".app", ".dev"]
 _BATCH_SIZE = 10
 _DELAY_BETWEEN_BATCHES = 0.75   # seconds — Verisign is stricter than rdap.org
 _REQUEST_TIMEOUT = 8.0

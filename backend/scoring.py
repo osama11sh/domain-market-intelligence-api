@@ -9,8 +9,8 @@ _VOWELS = set("aeiou")
 _AWKWARD_COMBOS = re.compile(r'(xx|zz|qq|vv|ww|ck$|ng$|[bcdfghjklmnpqrstvwxyz]{4,})')
 _AMBIGUOUS_ENDINGS = re.compile(r'(rn|ci|cl|li|lj|ji|lo|o0|l1)$')
 
-_EXTENSION_BONUS = {".com": 10, ".net": 5, ".org": 4, ".ai": 8}
-_REGISTRATION_COST_USD = {".com": 12, ".net": 12, ".org": 16, ".ai": 70}
+_EXTENSION_BONUS = {".com": 10, ".net": 5, ".org": 4, ".ai": 8, ".io": 7, ".co": 6, ".app": 5, ".dev": 5, ".store": 3, ".site": 2, ".online": 2}
+_REGISTRATION_COST_USD = {".com": 12, ".net": 12, ".org": 16, ".ai": 70, ".store": 5, ".site": 3, ".online": 3, ".co": 30, ".io": 60, ".app": 14, ".dev": 12}
 
 
 def _length_score(name: str) -> int:

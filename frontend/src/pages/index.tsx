@@ -283,7 +283,7 @@ export default function Home() {
                 key={n.niche}
                 type="button"
                 onClick={() => setNiche(n.niche)}
-                title={`Trend score: ${n.trend_score}  Heat: ${n.heat_index}`}
+                title={`Trend score: ${n.trend_score}  Trend Index: ${n.heat_index}`}
                 className="px-3 py-1 rounded-full text-xs border border-indigo-700/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 hover:border-indigo-500 transition capitalize"
               >
                 {n.niche}
