@@ -112,6 +112,7 @@ class SearchResponse(BaseModel):
     trend_source: str
     brandable_keywords: list[str]
     meaningful_keywords: list[str]
+    partial_result_note: Optional[str] = None
 
 
 def _passes_length_filter(name: str, min_length: Optional[int], max_length: Optional[int]) -> bool:
@@ -150,6 +151,10 @@ async def trending_niches(limit: int = 6):
     return {"niches": trend_engine.get_trending_niches(limit=max(1, min(limit, 10)))}
 
 
+_MAX_RETRY_ROUNDS = 5
+_ROUND_BATCH_MULTIPLIER = 2  # check 2× requested per round
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search_domains(req: SearchRequest):
     # When niche is empty, pick the top trending niche from the scored baseline.
@@ -173,17 +178,24 @@ async def search_domains(req: SearchRequest):
         niche, trend_data["source"], len(brandable_keywords), len(meaningful_keywords),
     )
 
-    # ── Step 2: Balanced generation (50/50 split, generates 3× target count) ─
+    # ── Step 2: Generate a large candidate pool upfront (enough for all retry rounds) ─
+    # pool_target drives the generator's internal pool_size = pool_target * 3,
+    # giving half = pool_target * 1.5 items per stream. We want at least
+    # MAX_ROUNDS * BATCH_MULTIPLIER * candidate_limit total candidates.
+    pool_target = max(
+        candidate_limit * _MAX_RETRY_ROUNDS * _ROUND_BATCH_MULTIPLIER // 3,
+        30,
+    )
     candidates = generate_candidates_balanced(
         niche=niche,
         brandable_keywords=brandable_keywords,
         meaningful_keywords=meaningful_keywords,
-        target_count=candidate_limit,
+        target_count=pool_target,
         languages=req.languages,
     )
-    logger.info("Step 2 done — generated %d balanced candidates", len(candidates))
+    logger.info("Step 2 done — generated %d balanced candidates (pool_target=%d)", len(candidates), pool_target)
 
-    # Pre-filter by length and domain type before spending RDAP calls
+    # Pre-filter by length and domain type once over the full pool
     filtered_candidates: dict[str, dict] = {}
     for name, provenance in candidates.items():
         if not _passes_length_filter(name, req.min_length, req.max_length):
@@ -193,52 +205,85 @@ async def search_domains(req: SearchRequest):
             continue
         filtered_candidates[name] = provenance
 
-    names_to_check = sorted(filtered_candidates.keys())[:candidate_limit * 3]
+    # Preserve generator priority ordering (niche-matching → shorter → alpha)
+    pool_ordered = list(filtered_candidates.keys())
+    batch_size = max(candidate_limit * _ROUND_BATCH_MULTIPLIER, 20)
+    logger.info("Step 2 filter done — %d candidates pass length/type filter", len(pool_ordered))
 
-    # ── Step 3: RDAP availability (sequential — RDAP requires sequential per RFC) ─
-    availability_records = await check_availability(names_to_check, extensions)
-    grouped = group_by_name(availability_records)
-    logger.info("Step 3 done — checked %d names", len(names_to_check))
-
-    # ── Step 4: 4-dimension scoring + enrichment ─────────────────────────────
+    # ── Steps 3-4: Retry loop — check batches until quota filled or pool exhausted ─
     domains: list[DomainResult] = []
-    for name in names_to_check:
-        ext_map = grouped.get(name, {})
-        registrar_availability: dict[str, Optional[bool]] = {
-            e: ext_map.get(e) for e in ALL_EXTENSIONS
-        }
-        for ext, available in ext_map.items():
-            if available is False:
-                continue
-            enriched = enrich_domain(
-                name=name,
-                extension=ext,
-                available=available,
-                keywords=all_keywords,
-                provenance=filtered_candidates[name],
-                category=category,
-                trend_location=req.trend_location,
-                pytrends_scores=pytrends_scores,
-                registrar_availability=registrar_availability,
-                brandable_keywords=brandable_keywords,
-                meaningful_keywords=meaningful_keywords,
+    checked_offset = 0
+    partial_result_note: Optional[str] = None
+
+    for round_num in range(_MAX_RETRY_ROUNDS):
+        if len(domains) >= candidate_limit:
+            break
+
+        batch = pool_ordered[checked_offset:checked_offset + batch_size]
+        if not batch:
+            partial_result_note = (
+                f"Exhausted all {len(pool_ordered)} matching candidates after {round_num} round(s) "
+                f"— found {len(domains)} of {candidate_limit} requested. "
+                "Try widening your character length or extension filters."
             )
+            break
 
-            if req.cost_min is not None and enriched["registration_cost_usd"] < req.cost_min:
-                continue
-            if req.cost_max is not None and enriched["registration_cost_usd"] > req.cost_max:
-                continue
-            if req.score_heat_min is not None and enriched["heat_index"] < req.score_heat_min:
-                continue
-            if req.score_heat_min is not None and enriched["trend_score"] < req.score_heat_min:
-                continue
+        checked_offset += len(batch)
+        logger.info(
+            "Round %d/%d: RDAP-checking %d names (have %d/%d so far)",
+            round_num + 1, _MAX_RETRY_ROUNDS, len(batch), len(domains), candidate_limit,
+        )
 
-            domains.append(DomainResult(**enriched))
+        # ── Step 3: RDAP availability ──────────────────────────────────────
+        availability_records = await check_availability(batch, extensions)
+        grouped = group_by_name(availability_records)
+
+        # ── Step 4: 4-dimension scoring + enrichment ───────────────────────
+        for name in batch:
+            ext_map = grouped.get(name, {})
+            registrar_availability: dict[str, Optional[bool]] = {
+                e: ext_map.get(e) for e in ALL_EXTENSIONS
+            }
+            for ext, available in ext_map.items():
+                if available is False:
+                    continue
+                enriched = enrich_domain(
+                    name=name,
+                    extension=ext,
+                    available=available,
+                    keywords=all_keywords,
+                    provenance=filtered_candidates[name],
+                    category=category,
+                    trend_location=req.trend_location,
+                    pytrends_scores=pytrends_scores,
+                    registrar_availability=registrar_availability,
+                    brandable_keywords=brandable_keywords,
+                    meaningful_keywords=meaningful_keywords,
+                )
+
+                if req.cost_min is not None and enriched["registration_cost_usd"] < req.cost_min:
+                    continue
+                if req.cost_max is not None and enriched["registration_cost_usd"] > req.cost_max:
+                    continue
+                if req.score_heat_min is not None and enriched["heat_index"] < req.score_heat_min:
+                    continue
+                if req.score_heat_min is not None and enriched["trend_score"] < req.score_heat_min:
+                    continue
+
+                domains.append(DomainResult(**enriched))
+
+    # If we exhausted all retry rounds without filling the quota, surface a note
+    if len(domains) < candidate_limit and partial_result_note is None:
+        partial_result_note = (
+            f"Found {len(domains)} of {candidate_limit} requested domains after "
+            f"{_MAX_RETRY_ROUNDS} rounds ({checked_offset} candidates checked). "
+            "Try widening your character length or extension filters."
+        )
 
     # Sort by composite: rule-based score weighted with domain_score_total
     domains.sort(key=lambda r: r.score + r.domain_score_total, reverse=True)
     domains = domains[:candidate_limit]
-    logger.info("Step 4 done — returning %d scored domains", len(domains))
+    logger.info("Done — returning %d scored domains (note=%s)", len(domains), bool(partial_result_note))
 
     return SearchResponse(
         domains=domains,
@@ -247,4 +292,5 @@ async def search_domains(req: SearchRequest):
         trend_source=trend_data["source"],
         brandable_keywords=brandable_keywords,
         meaningful_keywords=meaningful_keywords,
+        partial_result_note=partial_result_note,
     )

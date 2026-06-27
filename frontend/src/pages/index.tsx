@@ -126,6 +126,7 @@ export default function Home() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [trendingNiches, setTrendingNiches] = useState<TrendingNiche[]>([]);
+  const [partialNote, setPartialNote] = useState<string | null>(null);
 
   // Filter state
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
@@ -167,6 +168,7 @@ export default function Home() {
     setError(null);
     setResults(null);
     setResolvedNiche("");
+    setPartialNote(null);
     try {
       const body: Record<string, unknown> = {
         domain_type: domainType,
@@ -196,6 +198,7 @@ export default function Home() {
       setKeywords(data.keyword_seeds);
       setTrendSource(data.trend_source);
       setResolvedNiche(data.niche);
+      setPartialNote(data.partial_result_note ?? null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(
@@ -367,6 +370,22 @@ export default function Home() {
 
               <FilterCard>
                 <FilterLabel>Extensions</FilterLabel>
+                <div className="flex gap-2 mb-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setExtensions(meta?.extensions ?? ALL_EXTENSIONS)}
+                    className="text-xs px-2 py-0.5 rounded border border-indigo-700 text-indigo-400 hover:bg-indigo-900/30 transition"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExtensions([])}
+                    className="text-xs px-2 py-0.5 rounded border border-gray-600 text-gray-400 hover:bg-gray-800 transition"
+                  >
+                    Clear All
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-1.5 pt-0.5">
                   {(meta?.extensions ?? ALL_EXTENSIONS).map((ext) => (
                     <button
@@ -487,6 +506,12 @@ export default function Home() {
         {/* Results */}
         {results !== null && !loading && (
           <>
+            {/* Partial result warning */}
+            {partialNote && (
+              <div className="bg-yellow-900/30 border border-yellow-800 rounded-xl p-4 text-yellow-300 mb-4 text-sm">
+                ⚠ {partialNote}
+              </div>
+            )}
             {/* Results meta bar */}
             <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 items-center text-xs text-gray-500">
               {resolvedNiche && (
