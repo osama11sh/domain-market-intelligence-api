@@ -227,3 +227,127 @@ def generate_candidates(niche: str, keywords: list[str], languages: list[str] | 
     all_sorted = sorted(candidates.keys(), key=_priority)
     limited_names = all_sorted[:350]
     return {name: candidates[name] for name in limited_names}
+
+
+# ---------------------------------------------------------------------------
+# Balanced 50/50 generation (Step 2 of 4-step workflow)
+# ---------------------------------------------------------------------------
+
+def _generate_brandable_pool(brandable_keywords: list[str], niche_token: str) -> dict[str, dict]:
+    """Generate brandable (creative/constructed) candidates from brandable keywords."""
+    pool: dict[str, dict] = {}
+    tokens = [t.lower() for t in brandable_keywords if t.isalpha()]
+
+    for token in tokens:
+        # Prefix + token
+        for prefix in _PREFIXES:
+            _add(pool, prefix + token, {"prefix": prefix, "root": token})
+        # Token + suffix
+        for suffix in _SUFFIXES:
+            _add(pool, token + suffix, {"root": token, "suffix": suffix})
+        # Prefix + token + suffix (short combos only)
+        for prefix in _PREFIXES[:6]:
+            for suffix in _SUFFIXES[:6]:
+                cand = prefix + token + suffix
+                _add(pool, cand, {"prefix": prefix, "root": token, "suffix": suffix})
+
+    # Portmanteau blends between brandable tokens
+    for a, b in itertools.combinations(tokens[:10], 2):
+        for name in _portmanteau(a, b):
+            _add(pool, name, {"blend_a": a, "blend_b": b})
+        for name in _portmanteau(b, a):
+            _add(pool, name, {"blend_a": b, "blend_b": a})
+
+    # Also blend niche token with brandable tokens
+    for token in tokens[:6]:
+        for name in _portmanteau(niche_token, token):
+            _add(pool, name, {"blend_a": niche_token, "blend_b": token})
+        for name in _portmanteau(token, niche_token):
+            _add(pool, name, {"blend_a": token, "blend_b": niche_token})
+
+    return pool
+
+
+def _generate_meaningful_pool(meaningful_keywords: list[str], niche_token: str, languages: list[str] | None) -> dict[str, dict]:
+    """Generate meaningful (literal/direct) candidates from meaningful keywords and lexicon."""
+    pool: dict[str, dict] = {}
+    tokens = [t.lower() for t in meaningful_keywords if t.isalpha()]
+
+    # Direct keyword tokens
+    for token in tokens:
+        _add(pool, token, {"niche_token": token})
+        # Short suffix combos to make domain-friendly names
+        for suffix in ["ly", "io", "co", "hub", "ai", "app", "er"]:
+            _add(pool, token + suffix, {"root": token, "suffix": suffix})
+        # Niche + keyword combos
+        cand = niche_token + token
+        _add(pool, cand, {"blend_a": niche_token, "blend_b": token})
+        cand = token + niche_token
+        _add(pool, cand, {"blend_a": token, "blend_b": niche_token})
+
+    # English root candidates using meaningful keywords as context
+    for root in _ENGLISH_ROOTS:
+        for token in tokens[:3]:
+            cand = root + token
+            _add(pool, cand, {"english_root": root, "extra_part": token})
+
+    # Lexicon words (meaningful by definition)
+    lexicon_langs = None if languages is None else [l for l in languages if l != "English"]
+    allowed = set(lexicon_langs) if lexicon_langs else None
+    for lang, words in LEXICON.items():
+        if allowed is not None and lang not in allowed:
+            continue
+        for word, meaning in words.items():
+            _add(pool, word, {"lexicon_word": word, "lexicon_lang": lang, "lexicon_meaning": meaning})
+            # Combine lexicon word with niche token
+            _add(pool, word + niche_token, {"lexicon_word": word, "lexicon_lang": lang, "lexicon_meaning": meaning, "extra_part": niche_token})
+
+    return pool
+
+
+def generate_candidates_balanced(
+    niche: str,
+    brandable_keywords: list[str],
+    meaningful_keywords: list[str],
+    target_count: int,
+    languages: list[str] | None = None,
+) -> dict[str, dict]:
+    """Generate domain name candidates with an exact 50/50 Brandable/Meaningful split.
+
+    Aims to produce at least target_count * 3 total candidates (to survive
+    availability filtering) with half from the brandable pool and half from the
+    meaningful pool. Provenance is preserved so semantics can classify each name.
+
+    Returns a dict of name -> provenance, with a '_stream' key indicating
+    'brandable' or 'meaningful' for each candidate.
+    """
+    niche_token = niche.lower().split()[0][:12]
+    # We generate 3x the target to ensure enough survive RDAP filtering
+    pool_size = max(target_count * 3, 30)
+    half = pool_size // 2
+
+    brandable_pool = _generate_brandable_pool(brandable_keywords, niche_token)
+    meaningful_pool = _generate_meaningful_pool(meaningful_keywords, niche_token, languages)
+
+    def _score(name: str, tokens: list[str]) -> tuple:
+        has_token = 0 if any(t in name for t in tokens) else 1
+        return (has_token, len(name), name)
+
+    b_tokens = [t.lower() for t in brandable_keywords if t.isalpha()]
+    m_tokens = [t.lower() for t in meaningful_keywords if t.isalpha()] + [niche_token]
+
+    b_sorted = sorted(brandable_pool.keys(), key=lambda n: _score(n, b_tokens))[:half]
+    m_sorted = sorted(meaningful_pool.keys(), key=lambda n: _score(n, m_tokens))[:half]
+
+    result: dict[str, dict] = {}
+    for name in b_sorted:
+        prov = dict(brandable_pool[name])
+        prov["_stream"] = "brandable"
+        result[name] = prov
+    for name in m_sorted:
+        if name not in result:
+            prov = dict(meaningful_pool[name])
+            prov["_stream"] = "meaningful"
+            result[name] = prov
+
+    return result

@@ -17,6 +17,12 @@ type DomainResult = {
   registrar_availability: Record<string, boolean | null>;
   geo_breakdown: Record<string, number>;
   expected_monthly_clicks: number;
+  // 4-dimension scores (each 0-10, total 0-40)
+  semantic_value: number;
+  trend_relevance: number;
+  market_potential: number;
+  brandability: number;
+  domain_score_total: number;
 };
 
 type Meta = {
@@ -42,7 +48,12 @@ type SortKey =
   | "trend_score"
   | "heat_index"
   | "registration_cost_usd"
-  | "expected_monthly_clicks";
+  | "expected_monthly_clicks"
+  | "domain_score_total"
+  | "semantic_value"
+  | "trend_relevance"
+  | "market_potential"
+  | "brandability";
 
 const ALL_EXTENSIONS = [".com", ".net", ".ai", ".org"];
 
@@ -79,6 +90,16 @@ function RegistrarBadges({ avail }: { avail: Record<string, boolean | null> }) {
           </span>
         );
       })}
+    </span>
+  );
+}
+
+function DimScore({ value, label }: { value: number; label: string }) {
+  const color =
+    value >= 8 ? "text-green-400" : value >= 5 ? "text-yellow-400" : "text-gray-500";
+  return (
+    <span className={`tabular-nums ${color}`} title={label}>
+      {value}
     </span>
   );
 }
@@ -216,9 +237,10 @@ export default function Home() {
   const sortableColumns: { key: SortKey; label: string }[] = [
     { key: "name", label: "Domain" },
     { key: "type", label: "Type" },
-    { key: "score", label: "Total Score" },
-    { key: "trend_score", label: "Trend Score" },
-    { key: "heat_index", label: "Trend Index" },
+    { key: "score", label: "Score" },
+    { key: "domain_score_total", label: "Dim Score" },
+    { key: "trend_score", label: "Trend" },
+    { key: "heat_index", label: "Heat" },
     { key: "registration_cost_usd", label: "Cost" },
     { key: "expected_monthly_clicks", label: "Clicks/mo" },
   ];
@@ -505,6 +527,7 @@ export default function Home() {
                           <SortArrow col={col.key} />
                         </th>
                       ))}
+                      <th className="px-3 py-3 text-left whitespace-nowrap text-xs" title="Semantic Value / Trend Relevance / Market Potential / Brandability (each 0-10)">S·T·M·B</th>
                       <th className="px-3 py-3 text-left whitespace-nowrap">Language</th>
                       <th className="px-3 py-3 text-left">Meaning / Construction</th>
                       <th className="px-3 py-3 text-left whitespace-nowrap">Registrar Avail.</th>
@@ -532,6 +555,11 @@ export default function Home() {
                         <td className="px-3 py-2.5 text-center tabular-nums">
                           <ScoreBadge value={r.score} />
                         </td>
+                        <td className="px-3 py-2.5 text-center tabular-nums">
+                          <span className={`font-bold ${r.domain_score_total >= 30 ? "text-green-400" : r.domain_score_total >= 20 ? "text-yellow-400" : "text-gray-400"}`}>
+                            {r.domain_score_total ?? "—"}
+                          </span>
+                        </td>
                         <td className="px-3 py-2.5 text-gray-300 text-center tabular-nums">{r.trend_score}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">
                           <span className={`${r.heat_index >= 60 ? "text-orange-400" : "text-gray-400"}`}>
@@ -543,6 +571,17 @@ export default function Home() {
                         </td>
                         <td className="px-3 py-2.5 text-gray-300 tabular-nums">
                           {r.expected_monthly_clicks.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap text-xs font-mono">
+                          <span className="flex gap-1" title={`Semantic: ${r.semantic_value} · Trend: ${r.trend_relevance} · Market: ${r.market_potential} · Brand: ${r.brandability}`}>
+                            <DimScore value={r.semantic_value ?? 0} label="Semantic Value" />
+                            <span className="text-gray-700">·</span>
+                            <DimScore value={r.trend_relevance ?? 0} label="Trend Relevance" />
+                            <span className="text-gray-700">·</span>
+                            <DimScore value={r.market_potential ?? 0} label="Market Potential" />
+                            <span className="text-gray-700">·</span>
+                            <DimScore value={r.brandability ?? 0} label="Brandability" />
+                          </span>
                         </td>
                         <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap text-xs">
                           {r.language_origin}

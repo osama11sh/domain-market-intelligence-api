@@ -93,6 +93,109 @@ def score_domain(name: str, extension: str, keywords: list[str]) -> int:
     return score_domain_breakdown(name, extension, keywords)["total"]
 
 
+def score_4dimensions(
+    name: str,
+    extension: str,
+    keywords: list[str],
+    brandable_keywords: list[str],
+    meaningful_keywords: list[str],
+    provenance: dict,
+    category: str,
+    trend_score: int,
+) -> dict:
+    """Compute the 4 semantic dimension scores (each 0–10) plus total (0–40).
+
+    Dimensions:
+      semantic_value    — how meaningful/clear the name is
+      trend_relevance   — alignment with current trend keywords
+      market_potential  — commercial/resale value signals
+      brandability      — how well it works as a brand
+    """
+    semantic = classify_and_explain(name, provenance)
+    name_type = semantic["type"]  # "Brandable" or "Meaningful"
+
+    # 1. Semantic value
+    if provenance.get("lexicon_word"):
+        sv = 9
+    elif provenance.get("english_root") and provenance.get("extra_part"):
+        sv = 7
+    elif name_type == "Meaningful":
+        if any(kw in name for kw in meaningful_keywords):
+            sv = 8
+        else:
+            sv = 6
+    else:
+        if provenance.get("prefix") or provenance.get("suffix"):
+            sv = 5
+        elif provenance.get("blend_a"):
+            sv = 4
+        else:
+            sv = 3
+
+    # 2. Trend relevance — how many trend keywords overlap
+    all_keywords = list(dict.fromkeys(meaningful_keywords + brandable_keywords + keywords))
+    kw_hits = sum(1 for kw in all_keywords if kw in name or name.startswith(kw[:4]))
+    if kw_hits >= 2:
+        tr = 9
+    elif kw_hits == 1:
+        tr = 7
+    elif any(kw[:3] in name for kw in all_keywords if len(kw) >= 3):
+        tr = 5
+    else:
+        # Use trend_score as a proxy
+        tr = max(1, min(6, trend_score // 15))
+
+    # 3. Market potential
+    n = len(name)
+    ext_val = {".com": 4, ".ai": 3, ".io": 3, ".co": 2, ".net": 2, ".org": 2, ".app": 2, ".dev": 2}.get(extension, 1)
+    if n <= 5:
+        len_val = 4
+    elif n <= 8:
+        len_val = 3
+    elif n <= 12:
+        len_val = 2
+    else:
+        len_val = 1
+    # Category premium bonus
+    premium_cats = {"crypto", "tech", "finance", "ai"}
+    cat_bonus = 1 if any(p in category for p in premium_cats) else 0
+    kw_hit = 1 if any(kw in name for kw in meaningful_keywords) else 0
+    mp = min(10, ext_val + len_val + cat_bonus + kw_hit + 1)
+
+    # 4. Brandability
+    ps = _pronounceability_score(name)
+    if ps >= 90:
+        brand_ps = 3
+    elif ps >= 70:
+        brand_ps = 2
+    else:
+        brand_ps = 1
+    if n <= 6:
+        brand_len = 3
+    elif n <= 9:
+        brand_len = 2
+    else:
+        brand_len = 1
+    # Uniqueness: invented/portmanteau names are more distinctive
+    if name_type == "Brandable" and provenance.get("blend_a"):
+        brand_unique = 2
+    elif name_type == "Brandable":
+        brand_unique = 1
+    else:
+        brand_unique = 0
+    ba = min(10, brand_ps + brand_len + brand_unique + 2)
+
+    total_4d = sv + tr + mp + ba
+
+    return {
+        "semantic_value": sv,
+        "trend_relevance": tr,
+        "market_potential": mp,
+        "brandability": ba,
+        "domain_score_total": total_4d,
+    }
+
+
 def enrich_domain(
     name: str,
     extension: str,
@@ -103,6 +206,8 @@ def enrich_domain(
     pytrends_scores: dict[str, int],
     registrar_availability: dict[str, bool | None],
     available: bool | None = True,
+    brandable_keywords: list[str] | None = None,
+    meaningful_keywords: list[str] | None = None,
 ) -> dict:
     """Build the full enriched result for one (name, extension) result row."""
     score_result = score_domain_breakdown(name, extension, keywords)
@@ -118,6 +223,17 @@ def enrich_domain(
     geo = trend_engine.geo_breakdown(category, trend_location)
 
     semantic = classify_and_explain(name, provenance)
+
+    dim_scores = score_4dimensions(
+        name=name,
+        extension=extension,
+        keywords=keywords,
+        brandable_keywords=brandable_keywords or [],
+        meaningful_keywords=meaningful_keywords or [],
+        provenance=provenance,
+        category=category,
+        trend_score=trend_score,
+    )
 
     return {
         "name": name,
@@ -135,4 +251,5 @@ def enrich_domain(
         "registrar_availability": registrar_availability,
         "geo_breakdown": geo,
         "expected_monthly_clicks": clicks,
+        **dim_scores,
     }

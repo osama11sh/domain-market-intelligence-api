@@ -1,5 +1,13 @@
-"""Domain Market Intelligence Platform - FastAPI backend."""
+"""Domain Market Intelligence Platform - FastAPI backend.
 
+4-step workflow:
+  Step 1 — Dual trend streams (brandable + meaningful), run in parallel
+  Step 2 — Balanced domain generation (exact count, 50/50 split)
+  Step 3 — RDAP availability checking
+  Step 4 — 4-dimension scoring (semantic_value, trend_relevance, market_potential, brandability)
+"""
+
+import asyncio
 import logging
 from typing import Literal, Optional
 
@@ -7,8 +15,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-from trends import fetch_trend_data
-from generator import generate_candidates
+from trends import fetch_dual_trend_streams
+from generator import generate_candidates, generate_candidates_balanced
 from availability import check_availability, group_by_name, ALL_EXTENSIONS
 from scoring import enrich_domain
 from semantics import SUPPORTED_LANGUAGES, classify_and_explain
@@ -17,7 +25,7 @@ import trend_engine
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Domain Market Intelligence", version="2.0.0")
+app = FastAPI(title="Domain Market Intelligence", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,6 +97,12 @@ class DomainResult(BaseModel):
     registrar_availability: dict[str, Optional[bool]]
     geo_breakdown: dict[str, int]
     expected_monthly_clicks: int
+    # 4-dimension scores (each 0-10, total 0-40)
+    semantic_value: int
+    trend_relevance: int
+    market_potential: int
+    brandability: int
+    domain_score_total: int
 
 
 class SearchResponse(BaseModel):
@@ -96,6 +110,8 @@ class SearchResponse(BaseModel):
     niche: str
     keyword_seeds: list[str]
     trend_source: str
+    brandable_keywords: list[str]
+    meaningful_keywords: list[str]
 
 
 def _passes_length_filter(name: str, min_length: Optional[int], max_length: Optional[int]) -> bool:
@@ -115,7 +131,7 @@ def _passes_domain_type_filter(semantic_type: str, domain_type: DomainType) -> b
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "3.0.0"}
 
 
 @app.get("/meta")
@@ -130,11 +146,7 @@ async def meta():
 
 @app.get("/trending-niches")
 async def trending_niches(limit: int = 6):
-    """Return the top trending niches for auto-niche selection.
-
-    Scores are computed by the independent baseline (no external call needed).
-    The frontend can call this when the niche field is empty to show suggestions.
-    """
+    """Return the top trending niches for auto-niche selection."""
     return {"niches": trend_engine.get_trending_niches(limit=max(1, min(limit, 10)))}
 
 
@@ -146,15 +158,30 @@ async def search_domains(req: SearchRequest):
     extensions = req.extensions or ALL_EXTENSIONS
     candidate_limit = min(max(req.num_results or 20, 5), 100)
 
-    # Step 1: Trend keywords (pytrends optional - independent trend_engine baseline always works)
-    trend_data = fetch_trend_data(niche)
-    keywords = trend_data["keywords"]
-    pytrends_scores = trend_data["pytrends_scores"]
-    logger.info("Keywords for '%s' (source=%s): %s", niche, trend_data["source"], keywords)
+    # ── Step 1: Dual trend streams (both run independently) ──────────────────
+    # Run in a thread pool since pytrends is sync I/O
+    trend_data = await asyncio.get_event_loop().run_in_executor(
+        None, fetch_dual_trend_streams, niche
+    )
+    brandable_keywords: list[str] = trend_data["brandable_keywords"]
+    meaningful_keywords: list[str] = trend_data["meaningful_keywords"]
+    pytrends_scores: dict[str, int] = trend_data["pytrends_scores"]
+    # Combined keywords used for scoring / keyword-match bonuses
+    all_keywords = list(dict.fromkeys(meaningful_keywords + brandable_keywords))
+    logger.info(
+        "Step 1 done — niche='%s' source=%s brandable=%d meaningful=%d",
+        niche, trend_data["source"], len(brandable_keywords), len(meaningful_keywords),
+    )
 
-    # Step 2: Generate candidates (with provenance for semantics + multi-language support)
-    candidates = generate_candidates(niche, keywords, req.languages)
-    logger.info("Generated %d candidates", len(candidates))
+    # ── Step 2: Balanced generation (50/50 split, generates 3× target count) ─
+    candidates = generate_candidates_balanced(
+        niche=niche,
+        brandable_keywords=brandable_keywords,
+        meaningful_keywords=meaningful_keywords,
+        target_count=candidate_limit,
+        languages=req.languages,
+    )
+    logger.info("Step 2 done — generated %d balanced candidates", len(candidates))
 
     # Pre-filter by length and domain type before spending RDAP calls
     filtered_candidates: dict[str, dict] = {}
@@ -168,11 +195,12 @@ async def search_domains(req: SearchRequest):
 
     names_to_check = sorted(filtered_candidates.keys())[:candidate_limit * 3]
 
-    # Step 3: RDAP availability across the requested extensions only
+    # ── Step 3: RDAP availability (sequential — RDAP requires sequential per RFC) ─
     availability_records = await check_availability(names_to_check, extensions)
     grouped = group_by_name(availability_records)
+    logger.info("Step 3 done — checked %d names", len(names_to_check))
 
-    # Step 4: Score + enrich, keep rows where the *requested* extension is available
+    # ── Step 4: 4-dimension scoring + enrichment ─────────────────────────────
     domains: list[DomainResult] = []
     for name in names_to_check:
         ext_map = grouped.get(name, {})
@@ -186,12 +214,14 @@ async def search_domains(req: SearchRequest):
                 name=name,
                 extension=ext,
                 available=available,
-                keywords=keywords,
+                keywords=all_keywords,
                 provenance=filtered_candidates[name],
                 category=category,
                 trend_location=req.trend_location,
                 pytrends_scores=pytrends_scores,
                 registrar_availability=registrar_availability,
+                brandable_keywords=brandable_keywords,
+                meaningful_keywords=meaningful_keywords,
             )
 
             if req.cost_min is not None and enriched["registration_cost_usd"] < req.cost_min:
@@ -205,12 +235,16 @@ async def search_domains(req: SearchRequest):
 
             domains.append(DomainResult(**enriched))
 
-    domains.sort(key=lambda r: r.score, reverse=True)
+    # Sort by composite: rule-based score weighted with domain_score_total
+    domains.sort(key=lambda r: r.score + r.domain_score_total, reverse=True)
     domains = domains[:candidate_limit]
+    logger.info("Step 4 done — returning %d scored domains", len(domains))
 
     return SearchResponse(
         domains=domains,
         niche=niche,
-        keyword_seeds=keywords,
+        keyword_seeds=all_keywords[:15],
         trend_source=trend_data["source"],
+        brandable_keywords=brandable_keywords,
+        meaningful_keywords=meaningful_keywords,
     )
