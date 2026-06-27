@@ -7,6 +7,8 @@
   NODE_VERSION = "20"
   NODE_ENV = "production"
   NEXT_PUBLIC_API_URL = "https://domain-market-intelligence-api.onrender.com"
-  # Disable auto-injected Next.js SSR plugin — this site uses output:"export" (static HTML)
-  # The plugin expects .next/ but static export creates out/; disabling prevents init failure
+  # This site uses output:"export" (static HTML to out/). Netlify's Essential Next.js
+  # Integration expects .next/ for SSR and fails on static exports. Both env vars cover
+  # the old plugin (NETLIFY_SKIP_PLUGIN_NEXTJS) and the Essential Integration (NETLIFY_NEXT_PLUGIN_SKIP).
   NETLIFY_SKIP_PLUGIN_NEXTJS = "true"
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
